@@ -1,105 +1,41 @@
+# Asp.Net Core 2 configuration file
+#
+# Check https://circleci.com/docs/2.0/language-java/ for more details
+#
 version: 2
 jobs:
   build:
     docker:
-      - image: 'microsoft/dotnet:2-sdk'
-        environment:
-          DEBIAN_FRONTEND: "noninteractive"
+      # specify the version you desire here
+      - image: circleci/openjdk:8-jdk
+      
+      # Specify service dependencies here if necessary
+      # CircleCI maintains a library of pre-built images
+      # documented at https://circleci.com/docs/2.0/circleci-images/
+      # - image: circleci/postgres:9.4
+
+    working_directory: c:\sch\pal-tracker
+
+    environment:
+      # Customize the JVM maximum heap limit
+      MAVEN_OPTS: -Xmx3200m
+    
     steps:
       - checkout
-      - run:
-          name: Test and build
-          command: |
-            ./scripts/build.sh
 
-      - store_artifacts:
-          path: artifacts
+      # Download and cache dependencies
+      - restore_cache:
+          keys:
+          - v1-dependencies-{{ checksum "pom.xml" }}
+          # fallback to using the latest cache if no exact match is found
+          - v1-dependencies-
 
-      - persist_to_workspace:
-          root: artifacts
+      - run: mvn dependency:go-offline
+
+      - save_cache:
           paths:
-            - pal-tracker-*.tgz
-
-  deployToReview:
-    docker:
-      - image: 'microsoft/dotnet:2-sdk'
-        environment:
-          DEBIAN_FRONTEND: "noninteractive"
-          EXTRACT_DEST: /tmp/extracted-archive
-          ENVIRONMENT: review
-    steps:
-      - attach_workspace:
-          at: artifacts
-      - run:
-          name: Install CF CLI
-          command: |
-            apt-get update
-            apt-get -y install apt-transport-https ca-certificates
-            wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
-            echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
-            apt-get update
-            apt-get install cf-cli
-
-      - run:
-          name: Unzip artifacts
-          command: |
-            mkdir -p $EXTRACT_DEST
-            tar -xvzf artifacts/pal-tracker-$CIRCLE_SHA1.tgz -C $EXTRACT_DEST
-
-      - run:
-          name: Deploy
-          command: |
-            cd $EXTRACT_DEST
-
-            cf login -a $CF_API -u $CF_USERNAME -p $CF_PASSWORD -o $CF_ORG -s $ENVIRONMENT
-            cf push -f manifest-$ENVIRONMENT.yml
-
-  deployToProd:
-    docker:
-      - image: 'microsoft/dotnet:2-sdk'
-        environment:
-          DEBIAN_FRONTEND: "noninteractive"
-          EXTRACT_DEST: /tmp/extracted-archive
-          ENVIRONMENT: production
-    steps:
-      - attach_workspace:
-          at: artifacts
-      - run:
-          name: Install CF CLI
-          command: |
-            apt-get update
-            apt-get -y install apt-transport-https ca-certificates
-            wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
-            echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
-            apt-get update
-            apt-get install cf-cli
-
-      - run:
-          name: Unzip artifacts
-          command: |
-            mkdir -p $EXTRACT_DEST
-            tar -xvzf artifacts/pal-tracker-$CIRCLE_SHA1.tgz -C $EXTRACT_DEST
-
-      - run:
-          name: Deploy
-          command: |
-            cd $EXTRACT_DEST
-
-            cf login -a $CF_API -u $CF_USERNAME -p $CF_PASSWORD -o $CF_ORG -s $ENVIRONMENT
-            cf push -f manifest-$ENVIRONMENT.yml
-
-workflows:
-  version: 2
-  deployment-pipeline:
-    jobs:
-      - build
-      - deployToReview:
-          requires:
-          - build
-      - canDeployToProduction:
-          type: approval
-          requires:
-           - deployToReview
-      - deployToProd:
-          requires:
-            - canDeployToProduction
+            - ~/.m2
+          key: v1-dependencies-{{ checksum "pom.xml" }}
+        
+      # run tests!
+      - run: mvn integration-test
